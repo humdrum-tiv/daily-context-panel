@@ -1,0 +1,96 @@
+.daily-context-panel {
+  padding: 12px;
+}
+
+.daily-context-header {
+  margin-bottom: 12px;
+}
+
+.daily-context-header h4 {
+  margin: 0;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.daily-context-subheader {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+.daily-context-section-title {
+  margin: 12px 0 4px;
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.daily-context-empty {
+  color: var(--text-faint);
+  font-size: var(--font-ui-small);
+  padding: 12px;
+  text-align: center;
+}
+
+.daily-context-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.daily-context-item {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 6px;
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.daily-context-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.daily-context-link {
+  display: block;
+  color: var(--text-normal);
+  text-decoration: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-context-link:hover {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+.daily-context-folder {
+  display: block;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-context-external-link::after {
+  content: ' ↗';
+  font-size: 0.75em;
+  opacity: 0.5;
+}
+
+/* Mobile: larger touch targets */
+.is-mobile .daily-context-item {
+  padding: 8px 6px;
+  min-height: 44px;
+  justify-content: center;
+}

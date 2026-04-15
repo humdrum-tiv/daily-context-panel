@@ -1,0 +1,10 @@
+{
+  "id": "daily-context-panel",
+  "name": "On This Day Panel",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Shows files created or modified on the date of the active daily note in a side panel.",
+  "author": "Kevin Kortum",
+  "authorUrl": "https://github.com/humdrum-tiv",
+  "isDesktopOnly": false
+}

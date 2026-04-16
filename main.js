@@ -4,8 +4,9 @@
  * On a daily note (YYYY-MM-DD filename): shows files created/modified on that date.
  * On any other note: uses the note's own creation date as the context date.
  *
- * Sections: Created same day, Last modified same day, Backlinks, Outgoing links,
- *           External links. All togglable and reorderable via Settings.
+ * Sections: Created same day, Last modified same day, On this day (prev years),
+ *           Backlinks, Outgoing links, External links.
+ *           All togglable and reorderable via Settings.
  *
  * Live updates: internal links/backlinks via metadataCache 'changed' event;
  *               external links via vault 'modify' event. Both debounced.
@@ -20,7 +21,6 @@ const { Plugin, ItemView, PluginSettingTab, Setting, openUrl } = require('obsidi
 const VIEW_TYPE         = 'daily-context-panel';
 const DAILY_NOTE_RE     = /^\d{4}-\d{2}-\d{2}$/;
 const EXCLUDED_PREFIXES = ['Misc/'];
-const EXTERNAL_LINK_RE  = /\[[^\]]*\]\((https?:\/\/[^)\s]+)\)|(?<![[(])(https?:\/\/[^\s)\]]+)/g;
 const DEBOUNCE_MS       = 500;
 
 const DEFAULT_SETTINGS = {
@@ -28,11 +28,12 @@ const DEFAULT_SETTINGS = {
   createdOnNonDaily: true,
   modifiedOnNonDaily: true,
   sections: [
-    { id: 'created',   label: 'Created same day',       enabled: true  },
-    { id: 'modified',  label: 'Last modified same day',  enabled: true  },
-    { id: 'backlinks', label: 'Backlinks',               enabled: false },
-    { id: 'outgoing',  label: 'Outgoing links',          enabled: false },
-    { id: 'external',  label: 'External links',          enabled: false },
+    { id: 'created',    label: 'Created same day',          enabled: true  },
+    { id: 'modified',   label: 'Last modified same day',    enabled: true  },
+    { id: 'onthisday',  label: 'On this day — previous years', enabled: false },
+    { id: 'backlinks',  label: 'Backlinks',                 enabled: false },
+    { id: 'outgoing',   label: 'Outgoing links',            enabled: false },
+    { id: 'external',   label: 'External links',            enabled: false },
   ]
 };
 
@@ -59,19 +60,34 @@ function isExcluded(file) {
   return false;
 }
 
+// Two-pass extraction: no lookbehind (mobile compatible).
 function extractExternalLinks(content) {
   const results = [];
   const seen = new Set();
   let match;
-  EXTERNAL_LINK_RE.lastIndex = 0;
-  while ((match = EXTERNAL_LINK_RE.exec(content)) !== null) {
-    const url = match[1] ?? match[0];
+
+  // Pass 1: [text](url) markdown links
+  const mdRe = /\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/g;
+  while ((match = mdRe.exec(content)) !== null) {
+    const url = match[1];
     if (!seen.has(url)) {
       seen.add(url);
       const labelMatch = match[0].match(/^\[([^\]]+)\]/);
       results.push({ url, label: labelMatch ? labelMatch[1] : url });
     }
   }
+
+  // Pass 2: bare URLs — strip markdown links first so their URLs aren't double-counted
+  const stripped = content.replace(/\[[^\]]*\]\(https?:\/\/[^)\s]+\)/g, ' ');
+  const bareRe = /https?:\/\/[^\s)\]]+/g;
+  while ((match = bareRe.exec(stripped)) !== null) {
+    const url = match[0];
+    if (!seen.has(url)) {
+      seen.add(url);
+      results.push({ url, label: url });
+    }
+  }
+
   return results;
 }
 
@@ -96,8 +112,6 @@ class DailyContextView extends ItemView {
 
   async onClose() {
     clearTimeout(this._debounceTimer);
-    // Let the plugin know this view is gone so it stops caching it
-    this.plugin._onViewClosed();
   }
 
   // Called when the active file changes (hard switch — no debounce)
@@ -206,6 +220,9 @@ class DailyContextView extends ItemView {
         case 'modified':
           if (showModified) rendered = this._renderFileList(root, `Last modified${sameDaySuffix}`, modified);
           break;
+        case 'onthisday':
+          rendered = this._renderOnThisDay(root, dateStr, file);
+          break;
         case 'backlinks':
           rendered = this._renderBacklinks(root, file);
           break;
@@ -233,7 +250,7 @@ class DailyContextView extends ItemView {
     const modified = [];
 
     for (const f of this.app.vault.getMarkdownFiles()) {
-      if (isExcluded(f))              continue;
+      if (isExcluded(f))               continue;
       if (f.path === currentFile.path) continue;
       if (DAILY_NOTE_RE.test(f.basename)) continue;
 
@@ -245,6 +262,31 @@ class DailyContextView extends ItemView {
     }
 
     return { created, modified };
+  }
+
+  _renderOnThisDay(root, dateStr, currentFile) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const matches = [];
+
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (isExcluded(f))               continue;
+      if (f.path === currentFile.path) continue;
+      if (DAILY_NOTE_RE.test(f.basename)) continue;
+
+      const created = new Date(f.stat.ctime);
+      if (
+        created.getMonth() + 1 === month &&
+        created.getDate()       === day   &&
+        created.getFullYear()   !== year
+      ) {
+        matches.push(f);
+      }
+    }
+
+    // Most recent year first
+    matches.sort((a, b) => b.stat.ctime - a.stat.ctime);
+
+    return this._renderFileList(root, 'On this day', matches);
   }
 
   _renderFileList(root, title, files) {
@@ -368,7 +410,7 @@ class DailyContextSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: 'On This Day Panel' });
+    new Setting(containerEl).setName('On This Day Panel').setHeading();
 
     new Setting(containerEl)
       .setName('Show ribbon icon')
@@ -394,7 +436,7 @@ class DailyContextSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Show "Last modified on same day" on non-daily notes')
-      .setDesc('When off, the Last Modified section only appears on daily notes.')
+      .setDesc('When off, the Last modified section only appears on daily notes.')
       .addToggle(toggle => toggle
         .setValue(this.plugin.settings.modifiedOnNonDaily ?? true)
         .onChange(async (value) => {
@@ -402,6 +444,8 @@ class DailyContextSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         })
       );
+
+    new Setting(containerEl).setName('Sections').setHeading();
 
     containerEl.createEl('p', {
       text: 'Toggle sections on or off and reorder them using the arrows.',
@@ -453,17 +497,18 @@ class DailyContextSettingTab extends PluginSettingTab {
 class DailyContextPlugin extends Plugin {
   constructor(...args) {
     super(...args);
-    this._view = null;
     this._ribbonIcon = null;
+  }
+
+  // Access the view without storing a direct reference (guideline: avoid view refs)
+  _getView() {
+    return this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view ?? null;
   }
 
   async onload() {
     await this.loadSettings();
 
-    this.registerView(VIEW_TYPE, (leaf) => {
-      this._view = new DailyContextView(leaf, this);
-      return this._view;
-    });
+    this.registerView(VIEW_TYPE, (leaf) => new DailyContextView(leaf, this));
 
     this.addSettingTab(new DailyContextSettingTab(this.app, this));
 
@@ -480,9 +525,10 @@ class DailyContextPlugin extends Plugin {
     // Switch to a new file
     this.registerEvent(
       this.app.workspace.on('file-open', (file) => {
-        if (!this._view) return;
-        if (file) this._view.renderForFile(file);
-        else       this._view.clearView();
+        const view = this._getView();
+        if (!view) return;
+        if (file) view.renderForFile(file);
+        else       view.clearView();
       })
     );
 
@@ -490,7 +536,8 @@ class DailyContextPlugin extends Plugin {
     // metadataCache 'changed' already fires after Obsidian's own idle debounce
     this.registerEvent(
       this.app.metadataCache.on('changed', (changedFile) => {
-        if (!this._view) return;
+        const view = this._getView();
+        if (!view) return;
 
         const active = this.app.workspace.getActiveFile();
         if (!active) return;
@@ -502,31 +549,27 @@ class DailyContextPlugin extends Plugin {
         // file could have just linked to the active one)
         if (changedFile.path !== active.path && !backlinkEnabled) return;
 
-        this._view.debouncedRefresh(changedFile.path);
+        view.debouncedRefresh(changedFile.path);
       })
     );
 
     // Live updates: external links (not in metadataCache — requires raw content read)
     this.registerEvent(
       this.app.vault.on('modify', (changedFile) => {
-        if (!this._view) return;
+        const view = this._getView();
+        if (!view) return;
         if (!this.settings.sections.some(s => s.id === 'external' && s.enabled)) return;
 
         const active = this.app.workspace.getActiveFile();
         if (!active || changedFile.path !== active.path) return;
 
-        this._view.debouncedRefresh(changedFile.path);
+        view.debouncedRefresh(changedFile.path);
       })
     );
   }
 
   onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE);
-    this._view = null;
-  }
-
-  _onViewClosed() {
-    this._view = null;
+    // Leaves are cleaned up automatically by Obsidian on unload
   }
 
   async loadSettings() {
@@ -538,9 +581,9 @@ class DailyContextPlugin extends Plugin {
         if (!savedIds.has(def.id)) merged.push(def);
       }
       this.settings = {
-        showRibbonIcon:       saved.showRibbonIcon       ?? DEFAULT_SETTINGS.showRibbonIcon,
-        createdOnNonDaily:   saved.createdOnNonDaily    ?? DEFAULT_SETTINGS.createdOnNonDaily,
-        modifiedOnNonDaily:  saved.modifiedOnNonDaily   ?? DEFAULT_SETTINGS.modifiedOnNonDaily,
+        showRibbonIcon:      saved.showRibbonIcon      ?? DEFAULT_SETTINGS.showRibbonIcon,
+        createdOnNonDaily:   saved.createdOnNonDaily   ?? DEFAULT_SETTINGS.createdOnNonDaily,
+        modifiedOnNonDaily:  saved.modifiedOnNonDaily  ?? DEFAULT_SETTINGS.modifiedOnNonDaily,
         sections: merged
       };
     } else {
@@ -557,17 +600,15 @@ class DailyContextPlugin extends Plugin {
       this._ribbonIcon.remove();
       this._ribbonIcon = null;
     }
-    if (this._view) await this._view.refresh();
+    const view = this._getView();
+    if (view) await view.refresh();
   }
 
   async _activateView() {
-    if (this._view) {
-      // Already open — just reveal it
-      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
-      if (leaves.length > 0) {
-        this.app.workspace.revealLeaf(leaves[0]);
-        return;
-      }
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+    if (leaves.length > 0) {
+      this.app.workspace.revealLeaf(leaves[0]);
+      return;
     }
 
     const leaf = this.app.workspace.getRightLeaf(false);
@@ -575,7 +616,8 @@ class DailyContextPlugin extends Plugin {
     this.app.workspace.revealLeaf(leaf);
 
     const active = this.app.workspace.getActiveFile();
-    if (active && this._view) await this._view.renderForFile(active);
+    const view = this._getView();
+    if (active && view) await view.renderForFile(active);
   }
 }
 

@@ -25,6 +25,8 @@ const DEBOUNCE_MS       = 500;
 
 const DEFAULT_SETTINGS = {
   showRibbonIcon: true,
+  createdOnNonDaily: true,
+  modifiedOnNonDaily: true,
   sections: [
     { id: 'created',   label: 'Created same day',       enabled: true  },
     { id: 'modified',  label: 'Last modified same day',  enabled: true  },
@@ -144,12 +146,28 @@ class DailyContextView extends ItemView {
 
     // Header
     const header = root.createEl('div', { cls: 'daily-context-header' });
-    header.createEl('h4', { text: dateStr });
     if (!isDailyNote) {
+      const dailyFile = this.app.vault.getMarkdownFiles()
+        .find(f => f.basename === dateStr);
+      if (dailyFile) {
+        const h4 = header.createEl('h4');
+        const link = h4.createEl('a', {
+          text: dateStr,
+          cls: 'daily-context-link internal-link daily-context-date-link'
+        });
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.app.workspace.openLinkText(dailyFile.path, '', false);
+        });
+      } else {
+        header.createEl('h4', { text: dateStr });
+      }
       header.createEl('div', {
         text: 'Context date from note creation',
         cls: 'daily-context-subheader'
       });
+    } else {
+      header.createEl('h4', { text: dateStr });
     }
 
     const enabledSections = this.plugin.settings.sections.filter(s => s.enabled);
@@ -161,9 +179,16 @@ class DailyContextView extends ItemView {
       return;
     }
 
-    // Single vault scan — only performed if at least one date section is enabled
+    const showCreatedOnNonDaily  = this.plugin.settings.createdOnNonDaily  ?? true;
+    const showModifiedOnNonDaily = this.plugin.settings.modifiedOnNonDaily ?? true;
+
+    const showCreated  = isDailyNote || showCreatedOnNonDaily;
+    const showModified = isDailyNote || showModifiedOnNonDaily;
+    const sameDaySuffix = isDailyNote ? '' : ' on same day';
+
+    // Single vault scan — only performed if at least one date section will render
     const needsDateScan = enabledSections.some(
-      s => s.id === 'created' || s.id === 'modified'
+      s => (s.id === 'created' && showCreated) || (s.id === 'modified' && showModified)
     );
     let created = [], modified = [];
     if (needsDateScan) {
@@ -176,10 +201,10 @@ class DailyContextView extends ItemView {
       let rendered = false;
       switch (section.id) {
         case 'created':
-          rendered = this._renderFileList(root, 'Created', created);
+          if (showCreated) rendered = this._renderFileList(root, `Created${sameDaySuffix}`, created);
           break;
         case 'modified':
-          rendered = this._renderFileList(root, 'Last modified', modified);
+          if (showModified) rendered = this._renderFileList(root, `Last modified${sameDaySuffix}`, modified);
           break;
         case 'backlinks':
           rendered = this._renderBacklinks(root, file);
@@ -239,6 +264,7 @@ class DailyContextView extends ItemView {
     const resolved = this.app.metadataCache.resolvedLinks;
 
     for (const [sourcePath, links] of Object.entries(resolved)) {
+      if (sourcePath === file.path) continue;          // never link to itself
       if (links[file.path] === undefined) continue;
       const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
       if (sourceFile && !isExcluded(sourceFile)) backlinks.push(sourceFile);
@@ -255,7 +281,7 @@ class DailyContextView extends ItemView {
 
     for (const link of links) {
       const target = this.app.metadataCache.getFirstLinkpathDest(link.link, file.path);
-      if (target && !seen.has(target.path) && !isExcluded(target)) {
+      if (target && target.path !== file.path && !seen.has(target.path) && !isExcluded(target)) {
         seen.add(target.path);
         outgoing.push(target);
       }
@@ -351,6 +377,28 @@ class DailyContextSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.showRibbonIcon)
         .onChange(async (value) => {
           this.plugin.settings.showRibbonIcon = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('Show "Created on same day" on non-daily notes')
+      .setDesc('When off, the Created section only appears on daily notes.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.createdOnNonDaily ?? true)
+        .onChange(async (value) => {
+          this.plugin.settings.createdOnNonDaily = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName('Show "Last modified on same day" on non-daily notes')
+      .setDesc('When off, the Last Modified section only appears on daily notes.')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.modifiedOnNonDaily ?? true)
+        .onChange(async (value) => {
+          this.plugin.settings.modifiedOnNonDaily = value;
           await this.plugin.saveSettings();
         })
       );
@@ -490,7 +538,9 @@ class DailyContextPlugin extends Plugin {
         if (!savedIds.has(def.id)) merged.push(def);
       }
       this.settings = {
-        showRibbonIcon: saved.showRibbonIcon ?? DEFAULT_SETTINGS.showRibbonIcon,
+        showRibbonIcon:       saved.showRibbonIcon       ?? DEFAULT_SETTINGS.showRibbonIcon,
+        createdOnNonDaily:   saved.createdOnNonDaily    ?? DEFAULT_SETTINGS.createdOnNonDaily,
+        modifiedOnNonDaily:  saved.modifiedOnNonDaily   ?? DEFAULT_SETTINGS.modifiedOnNonDaily,
         sections: merged
       };
     } else {

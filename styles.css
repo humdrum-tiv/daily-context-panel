@@ -2,6 +2,7 @@
   padding: 12px;
 }
 
+
 .daily-context-header {
   margin-bottom: 12px;
 }
@@ -13,6 +14,20 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.daily-context-date-link {
+  color: inherit !important;
+  text-decoration: none;
+  display: inline;
+  white-space: normal;
+  overflow: visible;
+  font-weight: 600;
+}
+
+.daily-context-date-link:hover {
+  color: var(--text-accent) !important;
+  text-decoration: underline;
 }
 
 .daily-context-subheader {

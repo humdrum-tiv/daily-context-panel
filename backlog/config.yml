@@ -1,6 +1,6 @@
 project_name: "Daily Context"
-default_status: "To Do"
-statuses: ["To Do", "In Progress", "Done"]
+default_status: "Backlog"
+statuses: ["Backlog", "In progress", "Paused", "Done"]
 labels: []
 date_format: yyyy-mm-dd
 max_column_width: 20
